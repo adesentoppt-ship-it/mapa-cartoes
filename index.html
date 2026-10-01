@@ -1,0 +1,621 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1">
+<meta name="theme-color" content="#14324a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Mapa de Cartões</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@600;700&display=swap">
+<style>
+/* Layout: mapa em ecrã inteiro; barra superior fina; painel inferior com os dois botões grandes (uso com uma mão, na rua) */
+:root{
+  --ink:#14324a;          /* azul petróleo — barra e texto */
+  --paper:#f5f7f6;        /* fundo dos painéis */
+  --card:#ffffff;
+  --line:#d6dedc;
+  --muted:#5d6f78;
+  --go:#e2581b;           /* laranja de colete — ação principal */
+  --rec:#c62828;          /* a gravar */
+  --ok:#2e7d4f;
+  --display:"Barlow Condensed","Arial Narrow",Arial,sans-serif;
+  --body:"Barlow",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{font-family:var(--body);color:var(--ink);background:var(--paper);overflow:hidden;-webkit-tap-highlight-color:transparent}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:3px solid var(--go);outline-offset:2px}
+[hidden]{display:none!important}
+
+#map{position:absolute;inset:0;z-index:1;background:#dfe6e4}
+
+.top{position:absolute;left:0;right:0;top:0;z-index:500;display:flex;align-items:center;gap:8px;
+  padding:calc(env(safe-area-inset-top,0px) + 8px) 12px 8px;background:var(--ink);color:#fff}
+.top h1{font-family:var(--display);font-size:20px;letter-spacing:.02em;margin:0;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@media (max-width:420px){.top h1{font-size:18px}.iconbtn{padding:7px 8px}}
+.sync{font-size:12px;display:flex;align-items:center;gap:6px;opacity:.9;white-space:nowrap}
+.dot{width:9px;height:9px;border-radius:50%;background:#9bb}
+.sync.ok .dot{background:#5fd38d}.sync.wait .dot{background:#ffb74d}.sync.err .dot{background:#ff6b6b}
+.iconbtn{background:rgba(255,255,255,.12);border:0;color:#fff;border-radius:8px;padding:7px 10px;font-weight:600;font-size:14px}
+
+.filters{position:absolute;z-index:500;left:12px;right:12px;top:calc(env(safe-area-inset-top,0px) + 58px);
+  display:flex;gap:6px;overflow-x:auto;scrollbar-width:none}
+.filters::-webkit-scrollbar{display:none}
+.chip{flex:none;border:1px solid var(--line);background:var(--card);border-radius:999px;padding:6px 12px;font-size:14px;font-weight:600;box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.chip[aria-pressed="true"]{background:var(--ink);color:#fff;border-color:var(--ink)}
+.chip .sw{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;vertical-align:0}
+
+.locbtn{position:absolute;z-index:500;right:12px;bottom:calc(env(safe-area-inset-bottom,0px) + 190px);
+  width:46px;height:46px;border-radius:50%;border:0;background:var(--card);box-shadow:0 2px 6px rgba(0,0,0,.25);display:grid;place-items:center}
+
+.panel{position:absolute;z-index:600;left:0;right:0;bottom:0;background:var(--paper);
+  border-radius:16px 16px 0 0;box-shadow:0 -4px 16px rgba(0,0,0,.15);
+  padding:12px 16px calc(env(safe-area-inset-bottom,0px) + 14px);display:grid;gap:10px;max-width:640px;margin:0 auto}
+.who{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--muted)}
+.who b{color:var(--ink);font-size:16px}
+.linkbtn{border:0;background:none;color:var(--go);font-weight:700;padding:4px;text-decoration:underline}
+.stats{display:flex;gap:16px;font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums;margin-left:auto}
+.stats b{color:var(--ink);font-size:15px}
+.actions{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.big{border:0;border-radius:12px;padding:14px 10px;font-family:var(--display);font-size:21px;letter-spacing:.02em;line-height:1.1;
+  display:flex;flex-direction:column;align-items:center;gap:4px;min-height:74px;justify-content:center}
+.big small{font-family:var(--body);font-size:12px;font-weight:500;letter-spacing:0;opacity:.85}
+.big.primary{background:var(--go);color:#fff}
+.big.secondary{background:var(--ink);color:#fff}
+.big.danger{background:var(--rec);color:#fff}
+.big.light{background:var(--card);color:var(--ink);border:1px solid var(--line)}
+.row3{display:flex;gap:8px;flex-wrap:wrap}
+.row3 .big{flex:1;min-width:120px}
+.recinfo{display:flex;align-items:baseline;gap:14px;font-variant-numeric:tabular-nums}
+.recinfo .t{font-family:var(--display);font-size:30px;color:var(--rec)}
+.recinfo span{font-size:14px;color:var(--muted)}
+.pulse{display:inline-block;width:12px;height:12px;border-radius:50%;background:var(--rec);animation:p 1.2s infinite}
+@keyframes p{50%{opacity:.25}}
+@media (prefers-reduced-motion:reduce){.pulse{animation:none}}
+.hint{font-size:13px;color:var(--muted);margin:0}
+
+/* Folhas (modais) */
+.sheet-bg{position:fixed;inset:0;z-index:900;background:rgba(10,25,35,.45);display:flex;align-items:flex-end;justify-content:center}
+.sheet{background:var(--paper);width:100%;max-width:560px;max-height:88%;overflow:auto;border-radius:16px 16px 0 0;
+  padding:18px 16px calc(env(safe-area-inset-bottom,0px) + 18px);display:grid;gap:14px}
+.sheet h2{font-family:var(--display);font-size:26px;margin:0}
+.field{display:grid;gap:6px}
+.field label{font-size:13px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.field input,.field textarea,.field select{border:1px solid var(--line);background:var(--card);border-radius:10px;padding:12px;font-size:17px;width:100%}
+.stepper{display:flex;align-items:center;gap:8px}
+.stepper button{width:56px;height:52px;border-radius:10px;border:1px solid var(--line);background:var(--card);font-size:18px;font-weight:700}
+.stepper input{text-align:center;font-size:24px;font-weight:700;font-variant-numeric:tabular-nums;flex:1;min-width:0}
+.btnrow{display:flex;gap:10px}
+.btnrow .big{flex:1;min-height:56px}
+
+.list{display:grid;gap:8px}
+.item{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 12px;text-align:left;width:100%}
+.item .sw{width:12px;height:12px;border-radius:50%}
+.item .main{min-width:0}
+.item .main b{display:block}
+.item .main span{font-size:13px;color:var(--muted);display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.item .n{font-variant-numeric:tabular-nums;font-weight:700;text-align:right;font-size:14px}
+.empty{color:var(--muted);text-align:center;padding:16px}
+
+.toast{position:fixed;z-index:1000;left:50%;transform:translateX(-50%);top:calc(env(safe-area-inset-top,0px) + 64px);
+  background:var(--ink);color:#fff;padding:10px 16px;border-radius:10px;font-weight:600;box-shadow:0 4px 12px rgba(0,0,0,.25);max-width:90%}
+.banner{position:absolute;z-index:550;left:12px;right:12px;top:calc(env(safe-area-inset-top,0px) + 100px);
+  background:#fff4e5;border:1px solid #f0c48a;color:#6b3d00;border-radius:10px;padding:8px 12px;font-size:13px}
+.leaflet-popup-content{font-family:var(--body);font-size:14px;margin:10px 12px}
+.leaflet-popup-content b{font-size:15px}
+.pop-del{margin-top:8px;border:1px solid #e3b4b4;background:#fff;color:var(--rec);border-radius:8px;padding:6px 10px;font-weight:600}
+</style>
+</head>
+<body>
+
+<div id="map" role="application" aria-label="Mapa das entregas de cartões"></div>
+
+<header class="top">
+  <h1>Mapa de Cartões</h1>
+  <div class="sync" id="sync"><span class="dot"></span><span id="syncTxt">a ligar…</span></div>
+  <button class="iconbtn" id="btnList" type="button">Histórico</button>
+</header>
+
+<nav class="filters" id="filters" aria-label="Filtros"></nav>
+<div class="banner" id="demoBanner" hidden>Modo de teste: as marcações ficam só neste telemóvel. Configure o link da folha Google para partilhar com a equipa.</div>
+
+<button class="locbtn" id="btnLoc" type="button" aria-label="Centrar na minha posição">
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#14324a" stroke-width="2.2"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
+</button>
+
+<section class="panel" id="panel">
+  <!-- Estado normal -->
+  <div id="idle" class="actions-wrap" style="display:grid;gap:10px">
+    <div class="who">
+      <span>Equipa: <b id="whoName">—</b></span>
+      <button class="linkbtn" id="btnWho" type="button">mudar</button>
+      <div class="stats"><span>Hoje <b id="stToday">0</b> cartões</span></div>
+    </div>
+    <div class="actions">
+      <button class="big primary" id="btnPoint" type="button">Marcar aqui<small>ponto no sítio onde estou</small></button>
+      <button class="big secondary" id="btnRec" type="button">Gravar rua<small>segue o meu caminho</small></button>
+    </div>
+    <button class="big light" id="btnGpx" type="button" style="min-height:56px">Importar percurso gravado<small>ficheiro GPX ou KML da app de GPS (ecrã desligado)</small></button>
+    <input type="file" id="inGpx" accept=".gpx,.kml,application/gpx+xml,application/vnd.google-earth.kml+xml,application/xml,text/xml" hidden>
+    <button class="linkbtn" id="btnDraw" type="button" style="justify-self:center">Sem GPS? Desenhar no mapa com o dedo</button>
+  </div>
+
+  <!-- A gravar percurso -->
+  <div id="recording" hidden style="display:grid;gap:10px">
+    <div class="recinfo"><span class="pulse"></span><span class="t" id="recTime">00:00</span><span><b id="recDist">0 m</b> percorridos</span></div>
+    <p class="hint" id="recHint">Mantenha o ecrã ligado. Para gravar com o ecrã desligado, use a app de GPS e depois "Importar percurso gravado".</p>
+    <div class="btnrow">
+      <button class="big light" id="btnRecCancel" type="button">Cancelar</button>
+      <button class="big danger" id="btnRecStop" type="button">Terminar e guardar</button>
+    </div>
+  </div>
+
+  <!-- A desenhar -->
+  <div id="drawing" hidden style="display:grid;gap:10px">
+    <p class="hint"><b>Toque no mapa</b> ao longo da rua onde entregou. Um só toque marca um ponto.</p>
+    <div class="row3">
+      <button class="big light" id="btnDrawCancel" type="button">Cancelar</button>
+      <button class="big light" id="btnDrawUndo" type="button">Desfazer</button>
+      <button class="big primary" id="btnDrawSave" type="button">Guardar</button>
+    </div>
+  </div>
+</section>
+
+<!-- Folha: código da equipa -->
+<div class="sheet-bg" id="shKey" hidden style="z-index:950">
+  <form class="sheet" id="fKey">
+    <h2>Código da equipa</h2>
+    <div class="field">
+      <label for="inKey">Escreva o código que recebeu</label>
+      <input id="inKey" autocomplete="off" autocapitalize="off" spellcheck="false" required maxlength="60">
+    </div>
+    <p class="hint" id="keyHint">Só é pedido uma vez neste telemóvel ou computador.</p>
+    <button class="big primary" type="submit">Entrar</button>
+  </form>
+</div>
+
+<!-- Folha: nome -->
+<div class="sheet-bg" id="shWho" hidden>
+  <form class="sheet" id="fWho">
+    <h2>Quem está a entregar?</h2>
+    <div class="field">
+      <label for="inWho">O seu nome</label>
+      <input id="inWho" list="names" autocomplete="off" required maxlength="30" placeholder="ex.: Lucas">
+      <datalist id="names"></datalist>
+    </div>
+    <p class="hint">Fica guardado neste telemóvel. Cada pessoa aparece no mapa com a sua cor.</p>
+    <button class="big primary" type="submit">Continuar</button>
+  </form>
+</div>
+
+<!-- Folha: guardar entrega -->
+<div class="sheet-bg" id="shSave" hidden>
+  <form class="sheet" id="fSave">
+    <h2 id="saveTitle">Guardar entrega</h2>
+    <div class="field">
+      <label for="inCards">Cartões entregues (aprox.)</label>
+      <div class="stepper">
+        <button type="button" data-step="-10">−10</button>
+        <input id="inCards" type="number" inputmode="numeric" min="0" step="1" value="0">
+        <button type="button" data-step="10">+10</button>
+      </div>
+    </div>
+    <div class="field">
+      <label for="inNote">Nota (opcional)</label>
+      <input id="inNote" maxlength="120" placeholder="ex.: Rua de Cedofeita, prédios até ao nº 200">
+    </div>
+    <div class="btnrow">
+      <button class="big light" type="button" id="btnSaveCancel">Cancelar</button>
+      <button class="big primary" type="submit">Guardar</button>
+    </div>
+  </form>
+</div>
+
+<!-- Folha: histórico -->
+<div class="sheet-bg" id="shList" hidden>
+  <div class="sheet">
+    <div style="display:flex;align-items:center;gap:8px">
+      <h2 style="flex:1">Histórico</h2>
+      <button class="big light" type="button" id="btnListClose" style="min-height:44px;padding:8px 16px;font-size:18px">Fechar</button>
+    </div>
+    <div class="stats" id="listStats" style="margin:0;flex-wrap:wrap"></div>
+    <div class="list" id="list"></div>
+  </div>
+</div>
+
+<!-- Folha: confirmar apagar -->
+<div class="sheet-bg" id="shDel" hidden>
+  <div class="sheet">
+    <h2>Apagar esta marcação?</h2>
+    <p class="hint" id="delTxt"></p>
+    <div class="btnrow">
+      <button class="big light" type="button" id="btnDelNo">Não</button>
+      <button class="big danger" type="button" id="btnDelYes">Apagar</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script>
+/* ================= CONFIGURAÇÃO =================
+   Cole aqui o link da "Aplicação Web" do Google Apps Script
+   e a mesma CHAVE que pôs no ficheiro Codigo.gs.
+   Se ficar vazio, a app funciona em modo de teste (só neste telemóvel). */
+const CONFIG = {
+  URL: "https://script.google.com/macros/s/AKfycby-4GhPu4W6Pr7tv4SYRABMdMbRXgiQraOKEF76f3BJ-gSxAmWwEAB12UiGPtqKGu-2/exec",
+  CHAVE: "", // não pôr aqui: cada pessoa escreve o código da equipa na primeira vez
+  CENTRO: [41.1579, -8.6291], // Porto
+  ZOOM: 13
+};
+/* ================================================ */
+
+const COLORS = ["#e2581b","#1f6fd1","#2e9d5b","#8e44ad","#c62828","#00838f","#b8860b","#d81b60","#5d4037","#3949ab"];
+const $ = id => document.getElementById(id);
+const LS = {
+  get(k, d){ try{ const v = localStorage.getItem("mc_"+k); return v==null ? d : JSON.parse(v); }catch(e){ return d; } },
+  set(k, v){ try{ localStorage.setItem("mc_"+k, JSON.stringify(v)); }catch(e){} }
+};
+const DEMO = !CONFIG.URL;
+function chave(){ return CONFIG.CHAVE || LS.get("chave",""); }
+
+let me = LS.get("me", "");
+let items = LS.get("cache", []);       // vindos do servidor
+let pending = LS.get("pending", []);   // ainda por enviar
+let localOnly = LS.get("demo", []);    // modo de teste
+let period = LS.get("period", "30");
+let personFilter = LS.get("person", "");
+let mode = "idle";                     // idle | rec | draw
+
+/* ---------- Mapa ---------- */
+const map = L.map("map", {zoomControl:false, attributionControl:true}).setView(CONFIG.CENTRO, CONFIG.ZOOM);
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+}).addTo(map);
+const layer = L.layerGroup().addTo(map);
+const tempLayer = L.layerGroup().addTo(map);
+let meMarker = null, meAcc = null, lastPos = null, firstFix = true;
+
+/* ---------- Utilitários ---------- */
+function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
+function toast(msg){ const t=$("toast"); t.textContent=msg; t.hidden=false; clearTimeout(toast._t); toast._t=setTimeout(()=>t.hidden=true, 2600); }
+function dist(a,b){ const R=6371000, r=Math.PI/180; const dLa=(b[0]-a[0])*r, dLo=(b[1]-a[1])*r;
+  const x=Math.sin(dLa/2)**2+Math.cos(a[0]*r)*Math.cos(b[0]*r)*Math.sin(dLo/2)**2; return 2*R*Math.asin(Math.sqrt(x)); }
+function pathLen(c){ let s=0; for(let i=1;i<c.length;i++) s+=dist(c[i-1],c[i]); return s; }
+function fmtDist(m){ return m<1000 ? Math.round(m)+" m" : (m/1000).toFixed(1).replace(".",",")+" km"; }
+function fmtDate(ts){ const d=new Date(ts); return d.toLocaleDateString("pt-PT",{day:"2-digit",month:"2-digit",year:"2-digit"})+" "+d.toLocaleTimeString("pt-PT",{hour:"2-digit",minute:"2-digit"}); }
+function daysAgo(ts){ return Math.floor((Date.now()-ts)/86400000); }
+function esc(s){ return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+function round5(c){ return c.map(p=>[Math.round(p[0]*1e5)/1e5, Math.round(p[1]*1e5)/1e5]); }
+
+function allItems(){
+  const base = DEMO ? localOnly : items;
+  const ids = new Set(base.map(i=>i.id));
+  return base.concat(pending.filter(p=>p.acao==="add" && !ids.has(p.item.id)).map(p=>({...p.item, _pend:true})))
+             .filter(i=>!pending.some(p=>p.acao==="del" && p.id===i.id));
+}
+function people(){ return [...new Set(allItems().map(i=>i.pessoa).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"pt")); }
+function colorOf(name){ const ps=people(); if(me && !ps.includes(me)) ps.push(me); ps.sort((a,b)=>a.localeCompare(b,"pt")); const i=ps.indexOf(name); return COLORS[(i<0?0:i)%COLORS.length]; }
+function visible(){
+  return allItems().filter(i=>{
+    if(personFilter && i.pessoa!==personFilter) return false;
+    if(period==="hoje") return new Date(i.ts).toDateString()===new Date().toDateString();
+    if(period!=="tudo") return daysAgo(i.ts) < Number(period);
+    return true;
+  }).sort((a,b)=>b.ts-a.ts);
+}
+
+/* ---------- Desenho ---------- */
+function render(){
+  layer.clearLayers();
+  const vis = visible();
+  vis.slice().reverse().forEach(i=>{
+    const col = colorOf(i.pessoa), old = daysAgo(i.ts) > 60;
+    const pop = `<b>${esc(i.pessoa)}</b><br>${fmtDate(i.ts)}<br>${i.cartoes?i.cartoes+" cartões":"cartões: não indicado"}`
+      + (i.tipo==="percurso" ? `<br>${fmtDist(pathLen(i.coords))} de rua` : "")
+      + (i.nota ? `<br><i>${esc(i.nota)}</i>` : "")
+      + (i._pend ? `<br><small>por enviar…</small>` : "")
+      + `<br><button class="pop-del" data-del="${esc(i.id)}">Apagar</button>`;
+    if(i.tipo==="percurso" && i.coords.length>1){
+      L.polyline(i.coords,{color:"#fff",weight:10,opacity:.8}).addTo(layer);
+      L.polyline(i.coords,{color:col,weight:6,opacity:old?.45:.95,dashArray:old?"6 8":null}).bindPopup(pop).addTo(layer);
+    } else if(i.coords.length){
+      L.circleMarker(i.coords[0],{radius:9,color:"#fff",weight:3,fillColor:col,fillOpacity:old?.45:1}).bindPopup(pop).addTo(layer);
+    }
+  });
+  // estatísticas
+  const today = allItems().filter(i=>new Date(i.ts).toDateString()===new Date().toDateString());
+  $("stToday").textContent = today.reduce((s,i)=>s+(Number(i.cartoes)||0),0);
+  renderFilters();
+}
+function renderFilters(){
+  const per = [["hoje","Hoje"],["7","7 dias"],["30","30 dias"],["90","90 dias"],["tudo","Tudo"]];
+  let h = per.map(([v,t])=>`<button class="chip" type="button" data-period="${v}" aria-pressed="${period===v}">${t}</button>`).join("");
+  const ps = people();
+  if(ps.length>1){
+    h += `<button class="chip" type="button" data-person="" aria-pressed="${!personFilter}">Todos</button>`;
+    h += ps.map(p=>`<button class="chip" type="button" data-person="${esc(p)}" aria-pressed="${personFilter===p}"><span class="sw" style="background:${colorOf(p)}"></span>${esc(p)}</button>`).join("");
+  }
+  $("filters").innerHTML = h;
+}
+$("filters").addEventListener("click", e=>{
+  const b = e.target.closest("button"); if(!b) return;
+  if(b.dataset.period!==undefined){ period=b.dataset.period; LS.set("period",period); }
+  if(b.dataset.person!==undefined){ personFilter=b.dataset.person; LS.set("person",personFilter); }
+  render();
+});
+
+/* ---------- Histórico ---------- */
+function renderList(){
+  const vis = visible();
+  const total = vis.reduce((s,i)=>s+(Number(i.cartoes)||0),0);
+  const km = vis.filter(i=>i.tipo==="percurso").reduce((s,i)=>s+pathLen(i.coords),0);
+  $("listStats").innerHTML = `<span><b>${vis.length}</b> marcações</span><span><b>${total}</b> cartões</span><span><b>${fmtDist(km)}</b> de ruas</span>`;
+  $("list").innerHTML = vis.length ? vis.map(i=>`
+    <button class="item" type="button" data-go="${esc(i.id)}">
+      <span class="sw" style="background:${colorOf(i.pessoa)}"></span>
+      <span class="main"><b>${esc(i.pessoa)} · ${i.tipo==="percurso"?fmtDist(pathLen(i.coords)):"ponto"}</b><span>${fmtDate(i.ts)}${i.nota?" · "+esc(i.nota):""}${i._pend?" · por enviar":""}</span></span>
+      <span class="n">${i.cartoes||"—"}</span>
+    </button>`).join("") : `<div class="empty">Ainda não há entregas neste período.</div>`;
+}
+$("btnList").onclick = ()=>{ renderList(); $("shList").hidden=false; };
+$("btnListClose").onclick = ()=>$("shList").hidden=true;
+$("list").addEventListener("click", e=>{
+  const b=e.target.closest("[data-go]"); if(!b) return;
+  const it=allItems().find(i=>i.id===b.dataset.go); if(!it) return;
+  $("shList").hidden=true;
+  if(it.coords.length>1) map.fitBounds(L.latLngBounds(it.coords),{padding:[60,60],maxZoom:18});
+  else map.setView(it.coords[0],18);
+});
+
+/* ---------- Apagar ---------- */
+let delId=null;
+document.addEventListener("click", e=>{
+  const b=e.target.closest("[data-del]"); if(!b) return;
+  delId=b.dataset.del; const it=allItems().find(i=>i.id===delId);
+  $("delTxt").textContent = it ? `${it.pessoa}, ${fmtDate(it.ts)}` : "";
+  map.closePopup(); $("shDel").hidden=false;
+});
+$("btnDelNo").onclick=()=>{ $("shDel").hidden=true; delId=null; };
+$("btnDelYes").onclick=()=>{
+  $("shDel").hidden=true; if(!delId) return;
+  if(DEMO){ localOnly=localOnly.filter(i=>i.id!==delId); LS.set("demo",localOnly); }
+  else {
+    const wasPending = pending.some(p=>p.acao==="add" && p.item.id===delId);
+    pending = pending.filter(p=>!(p.acao==="add" && p.item.id===delId));
+    if(!wasPending) pending.push({acao:"del", id:delId});
+    LS.set("pending",pending); sync();
+  }
+  delId=null; render(); toast("Apagado");
+};
+
+/* ---------- Quem sou ---------- */
+function askWho(){
+  $("names").innerHTML = people().map(p=>`<option value="${esc(p)}">`).join("");
+  $("inWho").value = me; $("shWho").hidden=false; setTimeout(()=>$("inWho").focus(),50);
+}
+$("fWho").onsubmit = e=>{ e.preventDefault(); const v=$("inWho").value.trim(); if(!v) return;
+  me=v; LS.set("me",me); $("whoName").textContent=me; $("shWho").hidden=true; render(); };
+$("btnWho").onclick = askWho;
+
+/* ---------- GPS ---------- */
+let watchId=null;
+function startWatch(){
+  if(!("geolocation" in navigator)){ toast("Este telemóvel não tem GPS no navegador"); return; }
+  if(watchId!=null) return;
+  watchId = navigator.geolocation.watchPosition(onPos, err=>{
+    if(err.code===1) toast("Autorize a localização no navegador para usar o GPS");
+  }, {enableHighAccuracy:true, maximumAge:3000, timeout:20000});
+}
+function onPos(p){
+  lastPos = {ll:[p.coords.latitude,p.coords.longitude], acc:p.coords.accuracy, t:Date.now()};
+  if(!meMarker){
+    meAcc = L.circle(lastPos.ll,{radius:lastPos.acc,color:"#1f6fd1",weight:1,fillOpacity:.1}).addTo(map);
+    meMarker = L.circleMarker(lastPos.ll,{radius:8,color:"#fff",weight:3,fillColor:"#1f6fd1",fillOpacity:1}).addTo(map);
+  } else { meMarker.setLatLng(lastPos.ll); meAcc.setLatLng(lastPos.ll).setRadius(lastPos.acc); }
+  if(firstFix){ firstFix=false; map.setView(lastPos.ll,17); }
+  if(mode==="rec") addRecPoint(lastPos);
+}
+$("btnLoc").onclick = ()=>{ startWatch(); if(lastPos) map.setView(lastPos.ll,17); else { firstFix=true; toast("À procura do GPS…"); } };
+
+/* ---------- Marcar ponto aqui ---------- */
+let draft=null; // {tipo, coords}
+$("btnPoint").onclick = ()=>{
+  if(!me) return askWho();
+  startWatch();
+  const fresh = lastPos && Date.now()-lastPos.t < 30000;
+  if(!fresh){ toast("À procura do GPS… tente de novo daqui a uns segundos"); return; }
+  if(lastPos.acc>60) toast(`GPS pouco preciso (±${Math.round(lastPos.acc)} m)`);
+  draft = {tipo:"ponto", coords:[lastPos.ll]};
+  openSave("Marcar este sítio");
+};
+
+/* ---------- Gravar percurso ---------- */
+let rec=null, recTimer=null, wakeLock=null;
+$("btnRec").onclick = async ()=>{
+  if(!me) return askWho();
+  startWatch();
+  rec = {coords:[], start:Date.now()};
+  rec.line = L.polyline([], {color:colorOf(me), weight:6}).addTo(tempLayer);
+  setMode("rec");
+  if(lastPos && Date.now()-lastPos.t<15000) addRecPoint(lastPos);
+  try{ wakeLock = await navigator.wakeLock?.request("screen"); }catch(e){}
+  recTimer = setInterval(()=>{
+    const s=Math.floor((Date.now()-rec.start)/1000);
+    $("recTime").textContent = String(Math.floor(s/60)).padStart(2,"0")+":"+String(s%60).padStart(2,"0");
+  },1000);
+};
+function addRecPoint(pos){
+  if(!rec || pos.acc>50) return;               // ignora leituras más
+  const c=rec.coords, last=c[c.length-1];
+  if(last && dist(last,pos.ll)<8) return;      // só grava de 8 em 8 metros
+  c.push(pos.ll); rec.line.setLatLngs(c);
+  $("recDist").textContent = fmtDist(pathLen(c));
+  map.panTo(pos.ll,{animate:true});
+}
+function stopRec(){ clearInterval(recTimer); try{ wakeLock?.release(); }catch(e){} wakeLock=null; }
+$("btnRecCancel").onclick = ()=>{ stopRec(); tempLayer.clearLayers(); rec=null; setMode("idle"); };
+$("btnRecStop").onclick = ()=>{
+  stopRec();
+  if(!rec.coords.length && lastPos) rec.coords.push(lastPos.ll);
+  if(!rec.coords.length){ toast("O GPS ainda não registou nenhum ponto"); return; }
+  draft = {tipo: rec.coords.length>1?"percurso":"ponto", coords: rec.coords};
+  openSave(draft.tipo==="percurso" ? `Guardar ${fmtDist(pathLen(rec.coords))} de rua` : "Guardar ponto");
+};
+document.addEventListener("visibilitychange", async ()=>{
+  if(document.visibilityState==="visible"){
+    if(mode==="rec" && !wakeLock){ try{ wakeLock = await navigator.wakeLock?.request("screen"); }catch(e){} }
+    load();
+  }
+});
+
+/* ---------- Desenhar com o dedo ---------- */
+let drawPts=[], drawLine=null;
+$("btnDraw").onclick = ()=>{
+  if(!me) return askWho();
+  drawPts=[]; drawLine=L.polyline([],{color:colorOf(me),weight:6}).addTo(tempLayer);
+  setMode("draw");
+};
+map.on("click", e=>{
+  if(mode!=="draw") return;
+  drawPts.push([e.latlng.lat,e.latlng.lng]); drawLine.setLatLngs(drawPts);
+  L.circleMarker(e.latlng,{radius:5,color:colorOf(me),fillOpacity:1}).addTo(tempLayer);
+});
+$("btnDrawUndo").onclick = ()=>{
+  drawPts.pop(); drawLine.setLatLngs(drawPts);
+  const ls=tempLayer.getLayers(); if(ls.length>1) tempLayer.removeLayer(ls[ls.length-1]);
+};
+$("btnDrawCancel").onclick = ()=>{ tempLayer.clearLayers(); setMode("idle"); };
+$("btnDrawSave").onclick = ()=>{
+  if(!drawPts.length){ toast("Toque no mapa primeiro"); return; }
+  draft = {tipo: drawPts.length>1?"percurso":"ponto", coords: drawPts.slice()};
+  openSave(draft.tipo==="percurso" ? `Guardar ${fmtDist(pathLen(drawPts))} de rua` : "Guardar ponto");
+};
+
+/* ---------- Importar GPX / KML (gravado noutra app, com o ecrã desligado) ---------- */
+$("btnGpx").onclick = ()=>{ if(!me) return askWho(); $("inGpx").value=""; $("inGpx").click(); };
+$("inGpx").onchange = async ()=>{
+  const f=$("inGpx").files[0]; if(!f) return;
+  let txt; try{ txt=await f.text(); }catch(e){ toast("Não foi possível ler o ficheiro"); return; }
+  const r=parseTrack(txt);
+  if(!r.coords.length){ toast("O ficheiro não tem nenhum percurso"); return; }
+  const c=[]; r.coords.forEach(p=>{ if(!c.length || dist(c[c.length-1],p)>=8) c.push(p); });
+  tempLayer.clearLayers();
+  if(c.length>1){ L.polyline(c,{color:colorOf(me),weight:6}).addTo(tempLayer); map.fitBounds(L.latLngBounds(c),{padding:[60,60],maxZoom:18}); }
+  else map.setView(c[0],18);
+  draft={tipo:c.length>1?"percurso":"ponto", coords:c, ts:r.ts};
+  openSave(c.length>1 ? `Guardar ${fmtDist(pathLen(c))} de rua` : "Guardar ponto");
+};
+function parseTrack(txt){
+  const doc=new DOMParser().parseFromString(txt,"application/xml");
+  const out=[]; let ts=null;
+  const by=n=>Array.from(doc.getElementsByTagNameNS("*",n));
+  // GPX
+  let pts=by("trkpt"); if(!pts.length) pts=by("rtept"); if(!pts.length) pts=by("wpt");
+  pts.forEach(p=>{
+    const la=parseFloat(p.getAttribute("lat")), lo=parseFloat(p.getAttribute("lon"));
+    if(isFinite(la)&&isFinite(lo)) out.push([la,lo]);
+    if(ts==null){ const t=p.getElementsByTagNameNS("*","time")[0]; if(t){ const v=Date.parse(t.textContent); if(isFinite(v)) ts=v; } }
+  });
+  // KML
+  if(!out.length){
+    by("coord").forEach(c=>{ const [lo,la]=c.textContent.trim().split(/\s+/).map(Number); if(isFinite(la)&&isFinite(lo)) out.push([la,lo]); });
+    if(!out.length) by("coordinates").forEach(c=>c.textContent.trim().split(/\s+/).forEach(t=>{
+      const [lo,la]=t.split(",").map(Number); if(isFinite(la)&&isFinite(lo)) out.push([la,lo]); }));
+    const w=by("when")[0]; if(w){ const v=Date.parse(w.textContent); if(isFinite(v)) ts=v; }
+  }
+  return {coords:out, ts};
+}
+
+/* ---------- Guardar ---------- */
+function openSave(title){ $("saveTitle").textContent=title; $("inCards").value=0; $("inNote").value=""; $("shSave").hidden=false; }
+document.querySelectorAll("[data-step]").forEach(b=>b.onclick=()=>{
+  const v=Math.max(0,(Number($("inCards").value)||0)+Number(b.dataset.step)); $("inCards").value=v; });
+$("btnSaveCancel").onclick = ()=>{
+  $("shSave").hidden=true;
+  if(mode==="rec"){ // volta a gravar
+    clearInterval(recTimer);
+    recTimer = setInterval(()=>{ const s=Math.floor((Date.now()-rec.start)/1000);
+      $("recTime").textContent = String(Math.floor(s/60)).padStart(2,"0")+":"+String(s%60).padStart(2,"0"); },1000);
+  }
+};
+$("fSave").onsubmit = e=>{
+  e.preventDefault();
+  let coords = round5(draft.coords);
+  while(JSON.stringify(coords).length>45000) coords = coords.filter((_,i)=>i%2===0||i===coords.length-1);
+  const item = {id:uid(), ts:draft.ts||Date.now(), pessoa:me, tipo:draft.tipo, cartoes:Math.max(0,Math.round(Number($("inCards").value)||0)),
+                nota:$("inNote").value.trim().slice(0,120), coords};
+  if(DEMO){ localOnly.push(item); LS.set("demo",localOnly); }
+  else { pending.push({acao:"add", item}); LS.set("pending",pending); sync(); }
+  $("shSave").hidden=true; tempLayer.clearLayers(); rec=null; draft=null; setMode("idle"); render();
+  toast("Guardado no mapa");
+};
+
+function setMode(m){
+  mode=m;
+  $("idle").hidden = m!=="idle"; $("recording").hidden = m!=="rec"; $("drawing").hidden = m!=="draw";
+  if(m==="rec"){ $("recTime").textContent="00:00"; $("recDist").textContent="0 m"; }
+  map.getContainer().style.cursor = m==="draw" ? "crosshair" : "";
+}
+
+/* ---------- Sincronização com a folha Google ---------- */
+function setSync(cls, txt){ $("sync").className="sync "+cls; $("syncTxt").textContent=txt; }
+let syncing=false;
+async function sync(){
+  if(!DEMO && !chave()) return load();
+  if(DEMO || syncing || !pending.length) return load();
+  if(!navigator.onLine){ setSync("wait", pending.length+" por enviar"); return; }
+  syncing=true; setSync("wait","a enviar…");
+  try{
+    const batch = pending.slice();
+    const r = await fetch(CONFIG.URL, {method:"POST", headers:{"Content-Type":"text/plain;charset=utf-8"},
+      body: JSON.stringify({chave:chave(), ops:batch})});
+    const j = await r.json();
+    if(!j.ok){ if(j.erro==="chave") askKey(true); throw new Error(j.erro||"erro"); }
+    pending = pending.filter(p=>!batch.includes(p)); LS.set("pending",pending);
+    syncing=false; await load();
+  }catch(err){
+    syncing=false; setSync("err", pending.length+" por enviar");
+  }
+}
+async function load(){
+  if(!DEMO && !chave()){ setSync("err","falta o código"); render(); return; }
+  if(DEMO){ setSync("wait","modo de teste"); render(); return; }
+  if(!navigator.onLine){ setSync(pending.length?"wait":"err", pending.length? pending.length+" por enviar" : "sem rede"); return; }
+  try{
+    const r = await fetch(CONFIG.URL+"?chave="+encodeURIComponent(chave())+"&t="+Date.now());
+    const j = await r.json();
+    if(!j.ok){ if(j.erro==="chave") askKey(true); throw new Error(j.erro||"erro"); }
+    items = j.items; LS.set("cache",items);
+    setSync(pending.length?"wait":"ok", pending.length? pending.length+" por enviar" : "atualizado");
+  }catch(err){ setSync("err","sem ligação"); }
+  render();
+}
+window.addEventListener("online", sync);
+setInterval(()=>{ if(document.visibilityState==="visible") sync(); }, 60000);
+
+/* ---------- Código da equipa ---------- */
+function askKey(wrong){
+  $("keyHint").textContent = wrong ? "Código errado. Confirme e escreva outra vez." : "Só é pedido uma vez neste telemóvel ou computador.";
+  $("inKey").value=""; $("shKey").hidden=false; setTimeout(()=>$("inKey").focus(),50);
+}
+$("fKey").onsubmit = e=>{ e.preventDefault(); const v=$("inKey").value.trim(); if(!v) return;
+  LS.set("chave",v); $("shKey").hidden=true; sync(); if(!me) askWho(); };
+
+/* ---------- Arranque ---------- */
+$("demoBanner").hidden = !DEMO;
+$("whoName").textContent = me || "—";
+setMode("idle");
+render();
+sync();
+startWatch();
+if(!DEMO && !chave()) askKey(false);
+else if(!me) askWho();
+</script>
+</body>
+</html>
